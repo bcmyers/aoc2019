@@ -3,6 +3,7 @@ mod macros;
 
 pub mod day01;
 pub mod day02;
+pub mod day03;
 
 pub use self::error::Error;
 pub use self::reader::Reader;
