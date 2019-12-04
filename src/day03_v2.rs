@@ -7,7 +7,7 @@ use crate::error::Error;
 
 const ORIGIN: Point = Point { x: 0, y: 0 };
 
-pub fn run<R>(input: R) -> Result<(), Error>
+pub fn run<R>(input: R) -> Result<(String, String), Error>
 where
     R: io::BufRead,
 {
@@ -43,10 +43,7 @@ where
         }
     }
 
-    println!("{}", min_dist);
-    println!("{}", min_steps);
-
-    Ok(())
+    Ok((format!("{}", min_dist), format!("{}", min_steps)))
 }
 
 fn manhattan_distance(a: Point, b: Point) -> u64 {
@@ -58,7 +55,7 @@ where
     R: io::BufRead,
 {
     let mut buffer = String::new();
-    let mut pass = 0;
+    let mut id = 0;
     let mut paths = [Path(Vec::new()), Path(Vec::new())];
 
     loop {
@@ -66,7 +63,7 @@ where
             break;
         }
 
-        if pass > 1 {
+        if id > 1 {
             bail!("Invalid input. Input must be comprise of exactly 2 paths.")
         }
 
@@ -85,11 +82,11 @@ where
             let destination = origin + instruction;
             let segment = Segment::new(steps, origin, destination)?;
             steps += instruction.dist;
-            paths[pass].push(segment);
+            paths[id].push(segment);
             origin = destination;
         }
 
-        pass += 1;
+        id += 1;
         buffer.clear();
     }
 
@@ -261,4 +258,34 @@ impl DerefMut for Path {
 struct Point {
     x: i64,
     y: i64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_03() {
+        let test_cases = &[
+            // (input, expected1, expected2)
+            ("R8,U5,L5,D3\nU7,R6,D4,L4", "6", "30"),
+            (
+                "R75,D30,R83,U83,L12,D49,R71,U7,L72\nU62,R66,U55,R34,D71,R55,D58,R83",
+                "159",
+                "610",
+            ),
+            (
+                "R98,U47,R26,D63,R33,U87,L62,D20,R33,U53,R51\nU98,R91,D20,R16,D67,R40,U7,R15,U6,R7",
+                "135",
+                "410",
+            ),
+        ];
+
+        for (input, expected1, expected2) in test_cases {
+            let reader = io::BufReader::new(input.as_bytes());
+            let (actual1, actual2) = run(reader).unwrap();
+            assert_eq!(&actual1, expected1);
+            assert_eq!(&actual2, expected2);
+        }
+    }
 }
