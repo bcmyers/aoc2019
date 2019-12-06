@@ -10,11 +10,11 @@ where
 
     let (mut answer1, mut answer2) = (0, 0);
     for n in low..=high {
-        let (part1, part2) = is_valid(n)?;
-        if part1 {
+        let is_valid = is_valid(n)?;
+        if is_valid.0 {
             answer1 += 1;
         }
-        if part2 {
+        if is_valid.1 {
             answer2 += 1;
         }
     }
@@ -32,6 +32,7 @@ fn is_valid(n: usize) -> Result<(bool, bool), Error> {
         if digit < min {
             return Ok((false, false));
         }
+        min = digit;
 
         match previous_digits {
             PreviousDigits::None => {
@@ -63,8 +64,6 @@ fn is_valid(n: usize) -> Result<(bool, bool), Error> {
                 }
             }
         }
-
-        min = digit;
     }
 
     Ok(is_valid)
@@ -91,16 +90,19 @@ where
     Ok((low, high))
 }
 
-fn parse_digits(n: usize) -> Result<[u8; 6], Error> {
+fn parse_digits(mut n: usize) -> Result<[u8; 6], Error> {
     if n < 100_000 || n > 999_999 {
         bail!("Input must be a 6 digit number.")
     }
-
     let mut output = [0u8; 6];
-    for i in 0..6 {
-        let foo = n / 10usize.pow(i as u32); // 12345
-        let bar = (foo / 10) * 10;
-        output[5 - i] = (foo - bar) as u8;
+    let mut i = 5;
+    loop {
+        output[i] = (n % 10) as u8;
+        n /= 10;
+        if i == 0 {
+            break;
+        }
+        i -= 1;
     }
     Ok(output)
 }

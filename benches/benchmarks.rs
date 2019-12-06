@@ -27,10 +27,10 @@ fn target_02(c: &mut Criterion) {
 
 fn target_03(c: &mut Criterion) {
     let day03 = fs::read_to_string("data/03.txt").unwrap();
-    c.bench_function("day_03_v2", |b| {
+    c.bench_function("day_03", |b| {
         b.iter(|| {
             let reader = io::BufReader::new(day03.as_bytes());
-            aoc2019::day03_v2::run(reader).unwrap();
+            aoc2019::day03::run(reader).unwrap();
         })
     });
 }
@@ -45,10 +45,20 @@ fn target_04(c: &mut Criterion) {
     });
 }
 
+fn target_05(c: &mut Criterion) {
+    let day05 = fs::read_to_string("data/05.txt").unwrap();
+    c.bench_function("day_05", |b| {
+        b.iter(|| {
+            let reader = io::BufReader::new(day05.as_bytes());
+            aoc2019::day05::run(reader).unwrap();
+        })
+    });
+}
+
 criterion_group! {
     name = group;
     config = Criterion::default().warm_up_time(Duration::from_secs(5));
-    targets = target_01, target_02, target_03, target_04
+    targets = target_01, target_02, target_03, target_04, target_05
 }
 
 criterion_main!(group);

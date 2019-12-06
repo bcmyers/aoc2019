@@ -48,8 +48,9 @@ fn run() -> Result<(), Error> {
     let (answer1, answer2) = match opt.day {
         1 => aoc2019::day01::run(input)?,
         2 => aoc2019::day02::run(input)?,
-        3 => aoc2019::day03_v2::run(input)?,
+        3 => aoc2019::day03::run(input)?,
         4 => aoc2019::day04::run(input)?,
+        5 => aoc2019::day05::run(input)?,
         n if n > 0 && n < 26 => bail!("Day {} is not yet implemented.", n),
         _ => bail!("Day must be between 1 and 25, inclusive."),
     };

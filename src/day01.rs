@@ -23,7 +23,7 @@ where
         buffer.clear();
     }
 
-    Ok((format!("{}", total1), format!("{}", total2)))
+    Ok((total1.to_string(), total2.to_string()))
 }
 
 fn part_one(n: usize) -> usize {

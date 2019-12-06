@@ -1,136 +1,264 @@
-use std::collections::HashMap;
+use std::cmp;
 use std::convert::TryFrom;
 use std::io;
+use std::ops::{Add, Deref, DerefMut};
 
 use crate::error::Error;
 
-const ORIGIN: Point = Point(0, 0);
-
-type State = HashMap<Point, [Option<u32>; 2]>;
+const ORIGIN: Point = Point { x: 0, y: 0 };
 
 pub fn run<R>(input: R) -> Result<(String, String), Error>
 where
     R: io::BufRead,
 {
-    let mut state: State = HashMap::with_capacity(1024 * 1024);
+    let paths = parse_input(input)?;
 
+    let mut intersections = Vec::new();
+    for segment0 in paths[0].iter() {
+        for segment1 in paths[1].iter() {
+            if let Some(intersection) = segment0.intersection(segment1) {
+                intersections.push(intersection);
+            }
+        }
+    }
+
+    if intersections.is_empty() {
+        bail!("Unable to find any intersections.")
+    }
+
+    let (mut min_dist, mut min_steps) = (std::u64::MAX, std::u64::MAX);
+    for intersection in intersections {
+        let point = intersection.point;
+        let steps = intersection.steps;
+
+        // Part 1
+        let dist = manhattan_distance(point, ORIGIN);
+        if dist < min_dist {
+            min_dist = dist;
+        }
+
+        // Part 2
+        if steps < min_steps {
+            min_steps = steps;
+        }
+    }
+
+    Ok((min_dist.to_string(), min_steps.to_string()))
+}
+
+fn manhattan_distance(a: Point, b: Point) -> u64 {
+    ((a.x - b.x).abs() + (a.y - b.y).abs()) as u64
+}
+
+fn parse_input<R>(mut reader: R) -> Result<[Path; 2], Error>
+where
+    R: io::BufRead,
+{
+    let mut buffer = String::new();
     let mut id = 0;
+    let mut paths = [Path(Vec::new()), Path(Vec::new())];
 
-    for res in input.lines() {
-        assert!(id < 2);
+    loop {
+        if reader.read_line(&mut buffer)? == 0 {
+            break;
+        }
 
-        let line = res?;
+        if id > 1 {
+            bail!("Invalid input. Input must be comprise of exactly 2 paths.")
+        }
 
-        let mut point = ORIGIN;
+        let mut origin = Point { x: 0, y: 0 };
         let mut steps = 0;
 
-        for s in line.trim().split(",").map(|s| s.trim()) {
-            let instruction = s.parse::<Instruction>()?;
-            let new_point = process_instruction(id, steps, point, instruction, &mut state);
+        for s in buffer.trim().split(",").map(|s| s.trim()) {
+            let instruction = {
+                let bytes = s.as_bytes();
+                let c = bytes[0] as char;
+                let dir = Direction::try_from(c)?;
+                let dist = atoi::atoi::<u64>(&bytes[1..])
+                    .ok_or_else(|| error!("Unable to parse {} into an instruction.", s))?;
+                Instruction { dir, dist }
+            };
+            let destination = origin + instruction;
+            let segment = Segment::new(steps, origin, destination)?;
             steps += instruction.dist;
-            point = new_point;
+            paths[id].push(segment);
+            origin = destination;
         }
 
         id += 1;
+        buffer.clear();
     }
 
-    let (answer1, answer2) = state
-        .iter()
-        .filter(|(_, v)| v[0].is_some() && v[1].is_some())
-        .fold(
-            (std::u32::MAX, std::u32::MAX),
-            |(mut min_dist, mut min_steps), (point, array)| {
-                let dist = manhattan_distance(*point, ORIGIN);
-                if dist < min_dist {
-                    min_dist = dist
-                }
-
-                let steps = array[0].unwrap() + array[1].unwrap();
-                if steps < min_steps {
-                    min_steps = steps;
-                }
-
-                (min_dist, min_steps)
-            },
-        );
-
-    Ok((format!("{}", answer1), format!("{}", answer2)))
-}
-
-fn process_instruction(
-    id: usize,
-    steps: u32,
-    origin: Point,
-    instruction: Instruction,
-    state: &mut State,
-) -> Point {
-    let (i, j) = match instruction.dir {
-        Direction::U => (0, 1),
-        Direction::D => (0, -1),
-        Direction::R => (1, 0),
-        Direction::L => (-1, 0),
-    };
-
-    let mut destination = origin;
-    for n in 1..=instruction.dist {
-        let point = Point(origin.0 + i * n as i32, origin.1 + j * n as i32);
-        let value = state.entry(point).or_insert_with(|| [None, None]);
-        if value[id].is_none() {
-            value[id] = Some(steps + n);
-        }
-        destination = point;
-    }
-
-    destination
-}
-
-fn manhattan_distance(a: Point, b: Point) -> u32 {
-    ((a.0 - b.0).abs() + (a.1 - b.1).abs()) as u32
-}
-
-#[derive(Copy, Clone, Debug)]
-struct Instruction {
-    dir: Direction,
-    dist: u32,
-}
-
-impl std::str::FromStr for Instruction {
-    type Err = Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let bytes = s.as_bytes();
-        let dir = Direction::try_from(bytes[0] as char)?;
-        let dist = atoi::atoi::<u32>(&bytes[1..])
-            .ok_or_else(|| error!("Unable to parse {} into an instruction", s))?;
-        Ok(Instruction { dir, dist })
-    }
+    Ok(paths)
 }
 
 #[derive(Copy, Clone, Debug)]
 enum Direction {
     U,
     D,
-    R,
     L,
+    R,
 }
 
 impl TryFrom<char> for Direction {
     type Error = Error;
 
     fn try_from(c: char) -> Result<Self, Self::Error> {
-        let direction = match c {
+        let d = match c {
             'U' => Self::U,
             'D' => Self::D,
-            'R' => Self::R,
             'L' => Self::L,
-            _ => bail!("Unable to parse {} into a direction.", c),
+            'R' => Self::R,
+            _ => bail!("Invalid direction {}.", c),
         };
-        Ok(direction)
+        Ok(d)
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+struct Instruction {
+    dir: Direction,
+    dist: u64,
+}
+
+impl Add<Instruction> for Point {
+    type Output = Point;
+
+    fn add(self, rhs: Instruction) -> Self::Output {
+        match rhs.dir {
+            Direction::U => Point {
+                x: self.x,
+                y: self.y + rhs.dist as i64,
+            },
+            Direction::D => Point {
+                x: self.x,
+                y: self.y - rhs.dist as i64,
+            },
+            Direction::L => Point {
+                x: self.x - rhs.dist as i64,
+                y: self.y,
+            },
+            Direction::R => Point {
+                x: self.x + rhs.dist as i64,
+                y: self.y,
+            },
+        }
+    }
+}
+
+struct Intersection {
+    point: Point,
+    steps: u64,
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct Segment {
+    o: Point,
+    d: Point,
+    steps: u64,
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum SegmentKind {
+    Horizontal { x: (i64, i64), y: i64 },
+    Vertical { x: i64, y: (i64, i64) },
+}
+
+impl Segment {
+    fn new(steps: u64, o: Point, d: Point) -> Result<Self, Error> {
+        if o.x != d.x && o.y != d.y {
+            bail!("Invalid line segment from {:?} to {:?}. Line segments must be horizontal or vertical.", o, d);
+        }
+        Ok(Self { o, d, steps })
+    }
+
+    fn steps_to(&self, p: Point) -> u64 {
+        let new_steps = manhattan_distance(self.o, p);
+        self.steps + new_steps
+    }
+
+    fn intersection(&self, other: &Segment) -> Option<Intersection> {
+        match self.kind() {
+            SegmentKind::Horizontal { x, y } => {
+                let (xh, yh) = (x, y);
+                match other.kind() {
+                    SegmentKind::Vertical { x, y } => {
+                        let (xv, yv) = (x, y);
+                        if (xh.0..=xh.1).contains(&xv) {
+                            if (yv.0..=yv.1).contains(&yh) {
+                                let point = Point { x: xv, y: yh };
+                                if point != ORIGIN {
+                                    let steps = self.steps_to(point) + other.steps_to(point);
+                                    return Some(Intersection { point, steps });
+                                }
+                            }
+                        }
+                        None
+                    }
+                    _ => None,
+                }
+            }
+            SegmentKind::Vertical { x, y } => {
+                let (xv, yv) = (x, y);
+                match other.kind() {
+                    SegmentKind::Horizontal { x, y } => {
+                        let (xh, yh) = (x, y);
+                        if (xh.0..=xh.1).contains(&xv) {
+                            if (yv.0..=yv.1).contains(&yh) {
+                                let point = Point { x: xv, y: yh };
+                                if point != ORIGIN {
+                                    let steps = self.steps_to(point) + other.steps_to(point);
+                                    return Some(Intersection { point, steps });
+                                }
+                            }
+                        }
+                        None
+                    }
+                    _ => None,
+                }
+            }
+        }
+    }
+
+    fn kind(&self) -> SegmentKind {
+        if self.o.x == self.d.x {
+            SegmentKind::Vertical {
+                x: self.o.x,
+                y: (cmp::min(self.o.y, self.d.y), cmp::max(self.o.y, self.d.y)),
+            }
+        } else if self.o.y == self.d.y {
+            SegmentKind::Horizontal {
+                x: (cmp::min(self.o.x, self.d.x), cmp::max(self.o.x, self.d.x)),
+                y: self.o.y,
+            }
+        } else {
+            unreachable!()
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct Path(Vec<Segment>);
+
+impl Deref for Path {
+    type Target = Vec<Segment>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for Path {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
-struct Point(i32, i32);
+struct Point {
+    x: i64,
+    y: i64,
+}
 
 #[cfg(test)]
 mod tests {
