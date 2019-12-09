@@ -49,6 +49,8 @@ fn part_two(mut n: usize) -> usize {
 mod tests {
     use super::*;
 
+    use crate::utils;
+
     #[test]
     fn test_01() {
         let test_cases = &[
@@ -65,5 +67,7 @@ mod tests {
             assert_eq!(*expected1, actual1);
             assert_eq!(*expected2, actual2);
         }
+
+        utils::tests::test_full_problem(1, run, "3271095", "4903759");
     }
 }

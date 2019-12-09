@@ -179,6 +179,8 @@ where
 mod tests {
     use super::*;
 
+    use crate::utils;
+
     #[test]
     fn test_06() {
         {
@@ -203,5 +205,7 @@ mod tests {
             let dist = undirected.shortest_distance(id_you, id_san).unwrap();
             assert_eq!(dist, 6);
         }
+
+        utils::tests::test_full_problem(6, run, "241064", "418");
     }
 }

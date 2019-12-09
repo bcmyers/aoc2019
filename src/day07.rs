@@ -11,8 +11,13 @@ where
 
 #[cfg(test)]
 mod tests {
-    // use super::*;
+    use super::*;
+
+    use crate::utils;
 
     #[test]
-    fn test_07() {}
+    #[ignore]
+    fn test_07() {
+        utils::tests::test_full_problem(7, run, "43812", "59597414");
+    }
 }

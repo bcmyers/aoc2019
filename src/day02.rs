@@ -23,3 +23,15 @@ where
 
     Ok((answer1.to_string(), answer2?.to_string()))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::utils;
+
+    #[test]
+    fn test_02() {
+        utils::tests::test_full_problem(2, run, "3267740", "7870");
+    }
+}

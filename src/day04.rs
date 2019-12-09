@@ -118,6 +118,8 @@ enum PreviousDigits {
 mod tests {
     use super::*;
 
+    use crate::utils;
+
     #[test]
     fn test_04() {
         let test_cases = &[
@@ -134,5 +136,7 @@ mod tests {
             assert_eq!(actual1, *expected1);
             assert_eq!(actual2, *expected2);
         }
+
+        utils::tests::test_full_problem(4, run, "1929", "1306");
     }
 }

@@ -9,6 +9,7 @@ pub mod day04;
 pub mod day05;
 pub mod day06;
 pub mod day07;
+mod utils;
 
 pub use self::error::Error;
 pub use self::reader::Reader;

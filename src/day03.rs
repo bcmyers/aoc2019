@@ -264,6 +264,8 @@ struct Point {
 mod tests {
     use super::*;
 
+    use crate::utils;
+
     #[test]
     fn test_03() {
         let test_cases = &[
@@ -287,5 +289,7 @@ mod tests {
             assert_eq!(&actual1, expected1);
             assert_eq!(&actual2, expected2);
         }
+
+        utils::tests::test_full_problem(3, run, "4981", "164012");
     }
 }
