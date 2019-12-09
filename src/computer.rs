@@ -1,53 +1,120 @@
 use std::convert::TryFrom;
 use std::io;
+use std::time::Duration;
+
+use crossbeam::channel::{self, Receiver, Sender};
 
 use crate::error::Error;
 
+#[derive(Clone, Debug)]
+pub(crate) struct Rom(Vec<i64>);
+
+impl Rom {
+    pub(crate) fn from_reader<R>(mut reader: R) -> Result<Self, Error>
+    where
+        R: io::BufRead,
+    {
+        let mut buf = String::new();
+        reader.read_to_string(&mut buf)?;
+        let vec = buf
+            .trim()
+            .split(",")
+            .map(|s| s.trim().parse::<i64>().map_err(Error::from))
+            .collect::<Result<Vec<_>, Error>>()?;
+        Ok(Rom(vec))
+    }
+}
+
+impl AsRef<[i64]> for Rom {
+    fn as_ref(&self) -> &[i64] {
+        &self.0
+    }
+}
+
+impl std::ops::Deref for Rom {
+    type Target = [i64];
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for Rom {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct Channel<T> {
+    sender: Sender<T>,
+    receiver: Receiver<T>,
+}
+
+impl<T> Default for Channel<T> {
+    fn default() -> Self {
+        let (sender, receiver) = channel::bounded(1024);
+        Self { sender, receiver }
+    }
+}
+
+impl<T> Channel<T> {
+    pub(crate) fn push_back(&mut self, val: T) {
+        self.sender.send(val).unwrap()
+    }
+
+    pub(crate) fn pop_front(&mut self) -> Result<T, Error> {
+        use crossbeam::channel::RecvTimeoutError;
+        match self.receiver.recv_timeout(Duration::from_secs(5)) {
+            Ok(val) => Ok(val),
+            Err(e) => match e {
+                RecvTimeoutError::Timeout => {
+                    bail!("Attempted to pop value off channel, but timed out.")
+                }
+                RecvTimeoutError::Disconnected => unreachable!(),
+            },
+        }
+    }
+
+    pub(crate) fn try_clear(&mut self) {
+        let mut iter = self.receiver.try_iter();
+        while iter.next().is_some() {}
+    }
+
+    pub(crate) fn try_iter<'a>(&'a mut self) -> impl Iterator<Item = T> + 'a {
+        self.receiver.try_iter()
+    }
+}
+
 pub(crate) struct Computer {
-    rom: Vec<i64>,
     ram: Vec<i64>,
-
-    input: Vec<i64>,
-    output: Vec<i64>,
-
+    input: Channel<i64>,
+    output: Channel<i64>,
     pc: u64,
 }
 
 impl Computer {
-    pub(crate) fn new<R>(mut rom_reader: R) -> Result<Self, Error>
-    where
-        R: io::BufRead,
-    {
-        let mut buffer = String::new();
-        rom_reader.read_to_string(&mut buffer)?;
-        let rom = buffer
-            .trim()
-            .split(",")
-            .map(|s| Ok(s.parse::<i64>()?))
-            .collect::<Result<Vec<_>, Error>>()?;
-        Ok(Self {
-            rom,
+    pub(crate) fn new(input: Channel<i64>, output: Channel<i64>) -> Self {
+        Self {
             ram: Vec::new(),
-            input: Vec::new(),
-            output: Vec::new(),
+            input,
+            output,
             pc: 0,
-        })
+        }
     }
 
-    pub(crate) fn execute(
+    pub(crate) fn execute<R>(
         &mut self,
-        input: Option<Vec<i64>>,
+        rom: R,
         noun_and_verb: Option<(i64, i64)>,
-    ) -> Result<i64, Error> {
+    ) -> Result<i64, Error>
+    where
+        R: AsRef<[i64]>,
+    {
         // reset state
-        self.output = Vec::new();
         self.pc = 0;
-        self.ram = self.rom.clone();
+        self.ram = rom.as_ref().iter().cloned().collect();
 
         // set inputs
-        if let Some(input) = input {
-            self.input = input;
-        }
         if let Some((noun, verb)) = noun_and_verb {
             self.ram[1] = noun;
             self.ram[2] = verb;
@@ -116,13 +183,11 @@ impl Computer {
                 self.ram.write(w, a * b)?;
             }
             Instruction::Input { w } => {
-                let val = self.input.pop().ok_or_else(|| {
-                    error!("Attempted to access input, but input vector was empty.")
-                })?;
+                let val = self.input.pop_front()?;
                 self.ram.write(w, val)?;
             }
             Instruction::Output { a } => {
-                self.output.push(a);
+                self.output.push_back(a);
             }
             Instruction::JumpIfTrue { a, p } => {
                 if a != 0 {
@@ -155,13 +220,12 @@ impl Computer {
         Ok(Some(()))
     }
 
-    #[allow(unused)]
-    pub(crate) fn input(&self) -> &[i64] {
-        &self.input
+    pub(crate) fn input_mut(&mut self) -> &mut Channel<i64> {
+        &mut self.input
     }
 
-    pub(crate) fn output(&self) -> &[i64] {
-        &self.output
+    pub(crate) fn output_mut(&mut self) -> &mut Channel<i64> {
+        &mut self.output
     }
 
     #[allow(unused)]
@@ -319,8 +383,9 @@ mod tests {
 
         for (input, noun, verb, expected_ram) in test_cases {
             let reader = io::BufReader::new(input.as_bytes());
-            let mut computer = Computer::new(reader).unwrap();
-            let _ = computer.execute(None, Some((*noun, *verb))).unwrap();
+            let rom = Rom::from_reader(reader).unwrap();
+            let mut computer = Computer::new(Channel::default(), Channel::default());
+            let _ = computer.execute(&rom, Some((*noun, *verb))).unwrap();
             let expected_ram = expected_ram
                 .split(",")
                 .map(|s| s.trim().parse::<i64>().unwrap())
