@@ -52,6 +52,7 @@ fn run() -> Result<(), Error> {
         4 => aoc2019::day04::run(input)?,
         5 => aoc2019::day05::run(input)?,
         6 => aoc2019::day06::run(input)?,
+        7 => aoc2019::day07::run(input)?,
         n if n > 0 && n < 26 => bail!("Day {} is not yet implemented.", n),
         _ => bail!("Day must be between 1 and 25, inclusive."),
     };
