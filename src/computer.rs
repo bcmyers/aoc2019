@@ -89,7 +89,8 @@ pub(crate) struct Computer {
     ram: Vec<i64>,
     input: Channel<i64>,
     output: Channel<i64>,
-    pc: u64,
+    rb: i64, // Relative base
+    pc: u64, // Program counter
 }
 
 impl Computer {
@@ -98,6 +99,7 @@ impl Computer {
             ram: Vec::new(),
             input,
             output,
+            rb: 0,
             pc: 0,
         }
     }
@@ -113,11 +115,12 @@ impl Computer {
         // reset state
         self.pc = 0;
         self.ram = rom.as_ref().iter().cloned().collect();
+        self.rb = 0;
 
         // set inputs
         if let Some((noun, verb)) = noun_and_verb {
-            self.ram[1] = noun;
-            self.ram[2] = verb;
+            self.ram.write(1, noun)?;
+            self.ram.write(2, verb)?;
         }
 
         // main loop
@@ -135,38 +138,41 @@ impl Computer {
         let (opcode, mut modes) = self.ram.read_opcode(&mut self.pc)?;
         let instruction = match opcode {
             1 => Instruction::Add {
-                a: self.ram.read_signed(&mut modes, &mut self.pc)?,
-                b: self.ram.read_signed(&mut modes, &mut self.pc)?,
-                w: self.ram.read_ptr(&mut self.pc)?,
+                a: self.ram.read_signed(&mut modes, self.rb, &mut self.pc)?,
+                b: self.ram.read_signed(&mut modes, self.rb, &mut self.pc)?,
+                w: self.ram.read_ptr(&mut modes, self.rb, &mut self.pc)?,
             },
             2 => Instruction::Multiply {
-                a: self.ram.read_signed(&mut modes, &mut self.pc)?,
-                b: self.ram.read_signed(&mut modes, &mut self.pc)?,
-                w: self.ram.read_ptr(&mut self.pc)?,
+                a: self.ram.read_signed(&mut modes, self.rb, &mut self.pc)?,
+                b: self.ram.read_signed(&mut modes, self.rb, &mut self.pc)?,
+                w: self.ram.read_ptr(&mut modes, self.rb, &mut self.pc)?,
             },
             3 => Instruction::Input {
-                w: self.ram.read_ptr(&mut self.pc)?,
+                w: self.ram.read_ptr(&mut modes, self.rb, &mut self.pc)?,
             },
             4 => Instruction::Output {
-                a: self.ram.read_signed(&mut modes, &mut self.pc)?,
+                a: self.ram.read_signed(&mut modes, self.rb, &mut self.pc)?,
             },
             5 => Instruction::JumpIfTrue {
-                a: self.ram.read_signed(&mut modes, &mut self.pc)?,
-                p: self.ram.read_unsigned(&mut modes, &mut self.pc)?,
+                a: self.ram.read_signed(&mut modes, self.rb, &mut self.pc)?,
+                p: self.ram.read_unsigned(&mut modes, self.rb, &mut self.pc)?,
             },
             6 => Instruction::JumpIfFalse {
-                a: self.ram.read_signed(&mut modes, &mut self.pc)?,
-                p: self.ram.read_unsigned(&mut modes, &mut self.pc)?,
+                a: self.ram.read_signed(&mut modes, self.rb, &mut self.pc)?,
+                p: self.ram.read_unsigned(&mut modes, self.rb, &mut self.pc)?,
             },
             7 => Instruction::LessThan {
-                a: self.ram.read_signed(&mut modes, &mut self.pc)?,
-                b: self.ram.read_signed(&mut modes, &mut self.pc)?,
-                w: self.ram.read_ptr(&mut self.pc)?,
+                a: self.ram.read_signed(&mut modes, self.rb, &mut self.pc)?,
+                b: self.ram.read_signed(&mut modes, self.rb, &mut self.pc)?,
+                w: self.ram.read_ptr(&mut modes, self.rb, &mut self.pc)?,
             },
             8 => Instruction::Equals {
-                a: self.ram.read_signed(&mut modes, &mut self.pc)?,
-                b: self.ram.read_signed(&mut modes, &mut self.pc)?,
-                w: self.ram.read_ptr(&mut self.pc)?,
+                a: self.ram.read_signed(&mut modes, self.rb, &mut self.pc)?,
+                b: self.ram.read_signed(&mut modes, self.rb, &mut self.pc)?,
+                w: self.ram.read_ptr(&mut modes, self.rb, &mut self.pc)?,
+            },
+            9 => Instruction::RelativeBase {
+                a: self.ram.read_signed(&mut modes, self.rb, &mut self.pc)?,
             },
             99 => Instruction::Halt,
             _ => bail!("Unrecognized opcode {}", opcode),
@@ -213,6 +219,9 @@ impl Computer {
                     self.ram.write(w, 0)?;
                 }
             }
+            Instruction::RelativeBase { a } => {
+                self.rb += a;
+            }
             Instruction::Halt => {
                 return Ok(None);
             }
@@ -234,17 +243,20 @@ impl Computer {
     }
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 enum Mode {
-    Pointer,
+    Position,
     Immediate,
+    Relative,
 }
 
 impl TryFrom<u64> for Mode {
     type Error = Error;
     fn try_from(n: u64) -> Result<Self, Self::Error> {
         let output = match n {
-            0 => Mode::Pointer,
+            0 => Mode::Position,
             1 => Mode::Immediate,
+            2 => Mode::Relative,
             _ => bail!("Unrecognized addressing mode {}", n),
         };
         Ok(output)
@@ -258,7 +270,7 @@ impl Iterator for Modes {
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.0 {
-            0 => return Some(Ok(Mode::Pointer)),
+            0 => return Some(Ok(Mode::Position)),
             _ => {
                 let mode = match Mode::try_from(self.0 % 10) {
                     Ok(mode) => mode,
@@ -272,33 +284,33 @@ impl Iterator for Modes {
 }
 
 trait Memory {
-    fn read(&self, ptr: u64) -> Result<i64, Error>;
+    fn read(&mut self, ptr: u64) -> Result<i64, Error>;
     fn write(&mut self, ptr: u64, val: i64) -> Result<(), Error>;
 
-    fn read_opcode(&self, pc: &mut u64) -> Result<(u64, Modes), Error> {
+    fn read_opcode(&mut self, pc: &mut u64) -> Result<(u64, Modes), Error> {
         let n = self.read(*pc)?;
         *pc += 1;
         if n < 0 {
             bail!("Read negative opcode {}, which is not allowed.", n);
         }
         let mut n = n as u64;
-        let ones = n % 10;
-        n /= 10;
-        let tens = n % 10;
-        n /= 10;
-        let opcode = tens * 10 + ones;
+        let opcode = n % 100;
+        n /= 100;
         let modes = Modes(n);
         Ok((opcode, modes))
     }
 
-    fn read_signed(&self, modes: &mut Modes, pc: &mut u64) -> Result<i64, Error> {
-        let val = self.read(*pc)?;
+    fn read_signed(&mut self, modes: &mut Modes, rb: i64, pc: &mut u64) -> Result<i64, Error> {
+        let mut val = self.read(*pc)?;
         *pc += 1;
 
         let mode = modes.next().unwrap()?;
         match mode {
             Mode::Immediate => Ok(val),
-            Mode::Pointer => {
+            Mode::Position | Mode::Relative => {
+                if mode == Mode::Relative {
+                    val += rb;
+                }
                 if val < 0 {
                     bail!(
                         "Encountered negative pointer {}, which is not allowed.",
@@ -310,45 +322,48 @@ trait Memory {
             }
         }
     }
-    fn read_unsigned(&self, modes: &mut Modes, pc: &mut u64) -> Result<u64, Error> {
-        let val = self.read_signed(modes, pc)?;
+    fn read_unsigned(&mut self, modes: &mut Modes, rb: i64, pc: &mut u64) -> Result<u64, Error> {
+        let val = self.read_signed(modes, rb, pc)?;
         if val < 0 {
             bail!("Reading unsigned integer but found negative value {}.", val);
         }
         Ok(val as u64)
     }
 
-    fn read_ptr(&self, pc: &mut u64) -> Result<u64, Error> {
+    fn read_ptr(&mut self, modes: &mut Modes, rb: i64, pc: &mut u64) -> Result<u64, Error> {
         let val = self.read(*pc)?;
-        if val < 0 {
+        *pc += 1;
+
+        let mode = modes.next().unwrap()?;
+        let val2 = match mode {
+            Mode::Immediate | Mode::Position => val,
+            Mode::Relative => val + rb,
+        };
+
+        if val2 < 0 {
             bail!(
                 "Encountered negative pointer {}, which is not allowed.",
-                val
+                val2
             );
         }
-        *pc += 1;
-        Ok(val as u64)
+        Ok(val2 as u64)
     }
 }
 
 impl Memory for Vec<i64> {
-    fn read(&self, ptr: u64) -> Result<i64, Error> {
-        let value = *self.get(ptr as usize).ok_or_else(|| {
-            error!(
-                "Out of bounds error. Unable to read memory at location {}",
-                ptr
-            )
-        })?;
+    fn read(&mut self, ptr: u64) -> Result<i64, Error> {
+        if ptr as usize >= self.len() {
+            self.resize(ptr as usize + 1, 0);
+        }
+        let value = *self.get(ptr as usize).unwrap();
         Ok(value)
     }
 
     fn write(&mut self, ptr: u64, val: i64) -> Result<(), Error> {
-        let reference = self.get_mut(ptr as usize).ok_or_else(|| {
-            error!(
-                "Out of bounds error. Unable to write to memory location {}",
-                ptr
-            )
-        })?;
+        if ptr as usize >= self.len() {
+            self.resize(ptr as usize + 1, 0);
+        }
+        let reference = self.get_mut(ptr as usize).unwrap();
         *reference = val;
         Ok(())
     }
@@ -364,6 +379,7 @@ enum Instruction {
     JumpIfFalse { a: i64, p: u64 },
     LessThan { a: i64, b: i64, w: u64 },
     Equals { a: i64, b: i64, w: u64 },
+    RelativeBase { a: i64 },
     Halt,
 }
 
