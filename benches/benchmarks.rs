@@ -105,12 +105,48 @@ fn target_10(c: &mut Criterion) {
     });
 }
 
-criterion_group! {
-    name = group;
-    config = Criterion::default().warm_up_time(Duration::from_secs(5));
-    targets = target_01, target_02, target_03, target_04,
-              target_05, target_06, target_07, target_08,
-              target_09, target_10
+fn target_11(c: &mut Criterion) {
+    let day11 = fs::read_to_string("data/11.txt").unwrap();
+    c.bench_function("day_11", |b| {
+        b.iter(|| {
+            let reader = io::BufReader::new(day11.as_bytes());
+            aoc2019::day11::run(reader).unwrap();
+        })
+    });
 }
 
-criterion_main!(group);
+fn target_12(c: &mut Criterion) {
+    let day12 = fs::read_to_string("data/12.txt").unwrap();
+    c.bench_function("day_12", |b| {
+        b.iter(|| {
+            let reader = io::BufReader::new(day12.as_bytes());
+            aoc2019::day12::run(reader).unwrap();
+        })
+    });
+}
+
+fn target_13(c: &mut Criterion) {
+    let day13 = fs::read_to_string("data/13.txt").unwrap();
+    c.bench_function("day_13", |b| {
+        b.iter(|| {
+            let reader = io::BufReader::new(day13.as_bytes());
+            aoc2019::day13::run(reader).unwrap();
+        })
+    });
+}
+
+criterion_group! {
+    name = group;
+    config = Criterion::default().warm_up_time(Duration::from_secs(3));
+    targets = target_01, target_02, target_03, target_04,
+              target_05, target_06, target_07, target_08,
+              target_09, target_10, target_11, target_13
+}
+
+criterion_group! {
+    name = day_12;
+    config = Criterion::default().warm_up_time(Duration::from_secs(5)).sample_size(10);
+    targets = target_12
+}
+
+criterion_main!(group, day_12);
