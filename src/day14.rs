@@ -18,7 +18,7 @@ mod tests {
 
     #[test]
     #[ignore]
-    fn test_13() {
-        utils::tests::test_full_problem(13, run, "432", "22225")
+    fn test_14() {
+        utils::tests::test_full_problem(14, run, "612880", "2509120");
     }
 }

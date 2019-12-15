@@ -135,12 +135,23 @@ fn target_13(c: &mut Criterion) {
     });
 }
 
+fn target_14(c: &mut Criterion) {
+    let day14 = fs::read_to_string("data/14.txt").unwrap();
+    c.bench_function("day_14", |b| {
+        b.iter(|| {
+            let reader = io::BufReader::new(day14.as_bytes());
+            aoc2019::day14::run(reader).unwrap();
+        })
+    });
+}
+
 criterion_group! {
     name = group;
     config = Criterion::default().warm_up_time(Duration::from_secs(3));
     targets = target_01, target_02, target_03, target_04,
               target_05, target_06, target_07, target_08,
-              target_09, target_10, target_11, target_13
+              target_09, target_10, target_11, target_13,
+              target_14,
 }
 
 criterion_group! {
