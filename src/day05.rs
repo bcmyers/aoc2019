@@ -1,6 +1,6 @@
 use std::io;
 
-use crate::computer::{Channel, Computer, Rom};
+use crate::computer::{Computer, Rom};
 use crate::error::Error;
 
 pub fn run<R>(input: R) -> Result<(String, String), Error>
@@ -8,7 +8,7 @@ where
     R: io::BufRead,
 {
     let rom = Rom::from_reader(input)?;
-    let mut computer = Computer::new(Channel::default(), Channel::default());
+    let mut computer = Computer::default();
 
     // Part 1
     computer.input_mut().push_back(1);

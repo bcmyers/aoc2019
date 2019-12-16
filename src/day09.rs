@@ -1,6 +1,6 @@
 use std::io;
 
-use crate::computer::{Channel, Computer, Rom};
+use crate::computer::{Computer, Rom};
 use crate::error::Error;
 
 pub fn run<R>(reader: R) -> Result<(String, String), Error>
@@ -8,7 +8,7 @@ where
     R: io::BufRead,
 {
     let rom = Rom::from_reader(reader)?;
-    let mut computer = Computer::new(Channel::default(), Channel::default());
+    let mut computer = Computer::default();
 
     computer.input_mut().push_back(1);
     computer.execute(&rom, None)?;
@@ -49,7 +49,7 @@ mod tests {
         for (input, expected) in test_cases {
             let reader = io::BufReader::new(input.as_bytes());
             let rom = Rom::from_reader(reader).unwrap();
-            let mut computer = Computer::new(Channel::default(), Channel::default());
+            let mut computer = Computer::default();
             computer.execute(&rom, None).unwrap();
             let actual = computer.output_mut().try_iter().collect::<Vec<_>>();
             assert_eq!(*expected, &actual[..]);

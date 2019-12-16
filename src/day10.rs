@@ -4,7 +4,9 @@ use std::convert::TryFrom;
 use std::io;
 
 use crate::error::Error;
-use crate::utils::{Point, F64};
+use crate::utils::{Vec2, F64};
+
+type Point = Vec2<i64>;
 
 pub fn run<R>(reader: R) -> Result<(String, String), Error>
 where

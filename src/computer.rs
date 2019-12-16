@@ -58,6 +58,10 @@ impl<T> Default for Channel<T> {
 }
 
 impl<T> Channel<T> {
+    pub(crate) fn into_parts(self) -> (Sender<T>, Receiver<T>) {
+        (self.sender, self.receiver)
+    }
+
     pub(crate) fn push_back(&mut self, val: T) {
         self.sender.send(val).unwrap()
     }
@@ -93,8 +97,20 @@ pub(crate) struct Computer {
     pc: u64, // Program counter
 }
 
+impl Default for Computer {
+    fn default() -> Self {
+        Self {
+            ram: Vec::new(),
+            input: Channel::default(),
+            output: Channel::default(),
+            rb: 0,
+            pc: 0,
+        }
+    }
+}
+
 impl Computer {
-    pub(crate) fn new(input: Channel<i64>, output: Channel<i64>) -> Self {
+    pub(crate) fn with_io(input: Channel<i64>, output: Channel<i64>) -> Self {
         Self {
             ram: Vec::new(),
             input,
@@ -400,7 +416,7 @@ mod tests {
         for (input, noun, verb, expected_ram) in test_cases {
             let reader = io::BufReader::new(input.as_bytes());
             let rom = Rom::from_reader(reader).unwrap();
-            let mut computer = Computer::new(Channel::default(), Channel::default());
+            let mut computer = Computer::default();
             let _ = computer.execute(&rom, Some((*noun, *verb))).unwrap();
             let expected_ram = expected_ram
                 .split(",")

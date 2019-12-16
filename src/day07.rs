@@ -52,7 +52,7 @@ where
                         Ok(data) => data,
                         Err(_) => break,
                     };
-                    let mut computer = Computer::new(input, output);
+                    let mut computer = Computer::with_io(input, output);
 
                     computer.input_mut().push_back(phase_setting);
                     if i == 0 {
