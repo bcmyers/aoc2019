@@ -1,6 +1,6 @@
 use std::convert::TryFrom;
 use std::hash::Hash;
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 
 use crate::error::Error;
 
@@ -62,6 +62,70 @@ where
 impl<T> From<(T, T)> for Vec2<T> {
     fn from(tup: (T, T)) -> Self {
         Self(tup.0, tup.1)
+    }
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+pub(crate) struct Vec3<T>([T; 3]);
+
+impl<T> Default for Vec3<T>
+where
+    T: Copy + Default,
+{
+    fn default() -> Self {
+        Self([T::default(); 3])
+    }
+}
+
+impl<T> Vec3<T> {
+    #[allow(unused)]
+    pub(crate) const fn new(x: T, y: T, z: T) -> Self {
+        Self([x, y, z])
+    }
+}
+
+impl<T> Vec3<T>
+where
+    T: Copy,
+{
+    #[allow(unused)]
+    pub(crate) fn x(&self) -> T {
+        self.0[0]
+    }
+
+    #[allow(unused)]
+    pub(crate) fn y(&self) -> T {
+        self.0[1]
+    }
+
+    #[allow(unused)]
+    pub(crate) fn z(&self) -> T {
+        self.0[2]
+    }
+}
+
+impl<T> Deref for Vec3<T> {
+    type Target = [T];
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T> DerefMut for Vec3<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl<T> From<(T, T, T)> for Vec3<T> {
+    fn from(tup: (T, T, T)) -> Self {
+        Self([tup.0, tup.1, tup.2])
+    }
+}
+
+impl<T> From<[T; 3]> for Vec3<T> {
+    fn from(array: [T; 3]) -> Self {
+        Self(array)
     }
 }
 

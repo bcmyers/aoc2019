@@ -9,6 +9,7 @@ publish = false
 atoi = "0.3"
 crossbeam = "0.7"
 itertools = "0.8"
+lazy_static = "1.4"
 structopt = "0.3"
 
 [dev-dependencies]
