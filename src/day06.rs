@@ -143,7 +143,7 @@ where
         }
 
         let line = buffer.trim();
-        let mut iter = line.split(")").map(|s| s.trim().to_string());
+        let mut iter = line.split(')').map(|s| s.trim().to_string());
         let parent = iter
             .next()
             .ok_or_else(|| error!("Unable to parse input line {}", line))?;
@@ -157,16 +157,16 @@ where
 
         directed
             .entry(id_parent)
-            .or_insert_with(|| Vec::new())
+            .or_insert_with(Vec::new)
             .push(id_child);
 
         undirected
             .entry(id_parent)
-            .or_insert_with(|| Vec::new())
+            .or_insert_with(Vec::new)
             .push(id_child);
         undirected
             .entry(id_child)
-            .or_insert_with(|| Vec::new())
+            .or_insert_with(Vec::new)
             .push(id_parent);
 
         buffer.clear();

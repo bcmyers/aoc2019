@@ -13,24 +13,24 @@ where
     let mut buf = Vec::new();
     reader.read_to_end(&mut buf)?;
     buf.pop();
-    buf.iter_mut().for_each(|b| *b = *b - 48);
+    buf.iter_mut().for_each(|b| *b -= 48);
 
     // Part 1
     let answer1 = match buf
         .chunks(ROWS * COLS)
         .fold((std::usize::MAX, None), |mut state, layer| {
-            let nzeros = layer.iter().filter(|b| **b == 0).count();
+            let nzeros = bytecount::count(layer, 0);
             if nzeros < state.0 {
                 state = (nzeros, Some(layer));
             }
             state
         }) {
         (_, Some(layer)) => {
-            let nones = layer.iter().filter(|b| **b == 1).count();
-            let ntwos = layer.iter().filter(|b| **b == 2).count();
+            let nones = bytecount::count(layer, 1);
+            let ntwos = bytecount::count(layer, 2);
             nones * ntwos
         }
-        (_, None) => bail!("TODO"),
+        (_, None) => bail!("Error"),
     };
 
     // Part 2
@@ -52,8 +52,8 @@ where
             match iter.next() {
                 Some(0) => answer2.push('\u{2585}'),
                 Some(1) => answer2.push(' '),
-                Some(_) => bail!("TODO"),
-                None => bail!("TODO"),
+                Some(_) => bail!("Bad input: Found digit that is neither 0 nor 1"),
+                None => bail!("Bad input. Must contain {} rows and {} columns", ROWS, COLS),
             }
         }
         answer2.push('\n');

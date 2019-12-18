@@ -60,7 +60,7 @@ fn part1(points: &[Point]) -> Result<(usize, Point), Error> {
         for other in points {
             let direction = Direction::new(*origin, *other)?;
             map.entry(*origin)
-                .or_insert_with(|| HashSet::new())
+                .or_insert_with(HashSet::new)
                 .insert(direction);
         }
     }
@@ -73,7 +73,7 @@ fn part1(points: &[Point]) -> Result<(usize, Point), Error> {
         state
     });
 
-    let point = *point.ok_or_else(|| error!("TODO"))?;
+    let point = *point.ok_or_else(|| error!("No asteroid is able to see other asteroids."))?;
 
     Ok((max, point))
 }

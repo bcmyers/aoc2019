@@ -79,7 +79,7 @@ where
     let mut s = String::new();
     reader.read_to_string(&mut s)?;
 
-    let mut iter = s.split("-");
+    let mut iter = s.split('-');
     let low = iter.next().map(parse).ok_or_else(error)??;
     let high = iter.next().map(parse).ok_or_else(error)??;
 

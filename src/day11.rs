@@ -106,7 +106,7 @@ impl fmt::Display for Robot {
 
         let len = rows * (cols + 1);
 
-        let mut buf = vec![' ' as u8; len];
+        let mut buf = vec![b' '; len];
         for point in self
             .grid
             .iter()
@@ -115,11 +115,11 @@ impl fmt::Display for Robot {
         {
             let x = (point.x() - min_x) as usize;
             let y = (point.y() - min_y) as usize;
-            buf[(rows - 1 - y) * cols + x] = '#' as u8;
+            buf[(rows - 1 - y) * cols + x] = b'#';
         }
 
         for row in 0..(rows - 1) {
-            buf[row * cols + cols - 1] = '\n' as u8;
+            buf[row * cols + cols - 1] = b'\n';
         }
 
         let s = String::from_utf8(buf).unwrap();
@@ -156,7 +156,7 @@ enum Direction {
 }
 
 impl Direction {
-    fn next(&self, turn: Turn) -> Direction {
+    fn next(self, turn: Turn) -> Direction {
         use self::Direction::*;
         use self::Turn::*;
         match (self, turn) {

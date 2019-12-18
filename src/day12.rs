@@ -1,10 +1,11 @@
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::io;
 use std::mem;
 use std::ops::{Deref, DerefMut};
 
 use crate::error::Error;
-use crate::utils::Vec3;
+use crate::utils::{lcm, Vec3};
 
 #[cfg(not(all(
     any(target_arch = "x86", target_arch = "x86_64"),
@@ -18,23 +19,55 @@ use self::normal::Moon;
 ))]
 use self::simd::Moon;
 
+const PAIRS: [(usize, usize); 6] = [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)];
+
 pub fn run<R>(reader: R) -> Result<(String, String), Error>
 where
     R: io::BufRead,
 {
     let mut moons = parse_input(reader)?;
-    for _ in 0..1_000 {
+
+    let mut nsteps = 0;
+
+    let mut seen = [HashSet::new(), HashSet::new(), HashSet::new()];
+    let mut counts = [None, None, None];
+
+    let mut answer1 = Err(error!("Did not complete 1000 steps."));
+    loop {
+        let state = moons.state();
+        for coord in 0..3 {
+            if counts[coord].is_none() && !seen[coord].insert(state[coord]) {
+                counts[coord] = Some(nsteps)
+            }
+        }
+        let done = counts.iter().all(|count| count.is_some());
+        if done {
+            break;
+        }
+
         moons.step();
+        nsteps += 1;
+
+        if nsteps == 1000 {
+            answer1 = Ok(moons.energy());
+        }
     }
-    let answer1 = moons.energy();
-    Ok((answer1.to_string(), "TODO".to_string()))
+
+    let answer2 = lcm(
+        lcm(counts[0].unwrap(), counts[1].unwrap())?,
+        counts[2].unwrap(),
+    )?;
+
+    Ok((answer1?.to_string(), answer2.to_string()))
 }
 
 fn parse_input<R>(reader: R) -> Result<Moons, Error>
 where
     R: io::BufRead,
 {
-    // safety: TODO
+    // safety: This is safe because the code below ensures that by the
+    // time we would ever try to touch the moons array, all values inside
+    // will contain specific values that we have written to it.
     let mut moons: [RefCell<Moon>; 4] = unsafe { mem::MaybeUninit::uninit().assume_init() };
     let mut i = 0;
     for res in reader.lines() {
@@ -49,7 +82,7 @@ where
             let coord = part
                 .split('=')
                 .nth(1)
-                .ok_or_else(|| error!("TODO"))?
+                .ok_or_else(|| error!("Failed to line into a Moon: {:?}", line))?
                 .chars()
                 .take_while(|&c| c != '>')
                 .collect::<String>()
@@ -58,7 +91,7 @@ where
             j += 1;
         }
         if j != 3 {
-            bail!("Found too many coordinates.");
+            bail!("Found {} coordinate, but need 3", j);
         }
         let moon = Moon::new(pos, Vec3::default());
         moons[i] = RefCell::new(moon);
@@ -89,6 +122,18 @@ impl Moons {
         }
         total
     }
+
+    pub(crate) fn state(&self) -> [[(i64, i64); 4]; 3] {
+        // safety: code below ensures we're filling uninitialized array with actual values
+        let mut a: [[(i64, i64); 4]; 3] = unsafe { mem::MaybeUninit::uninit().assume_init() };
+        for moon in 0..4 {
+            let state = self.0[moon].borrow().state();
+            for coord in 0..3 {
+                a[coord][moon] = state[coord];
+            }
+        }
+        a
+    }
 }
 
 impl Deref for Moons {
@@ -113,19 +158,18 @@ mod normal {
 
     impl Moons {
         pub(crate) fn step(&mut self) {
-            for moon_i in &self.0 {
-                for moon_j in &self.0 {
-                    if moon_i == moon_j {
-                        continue;
-                    }
-                    for k in 0..3 {
-                        let pos_i = moon_i.borrow().pos()[k];
-                        let pos_j = moon_j.borrow().pos()[k];
-                        if pos_i < pos_j {
-                            moon_i.borrow_mut().vel_mut()[k] += 1;
-                        } else if pos_i > pos_j {
-                            moon_i.borrow_mut().vel_mut()[k] -= 1;
-                        }
+            for (i, j) in PAIRS.iter() {
+                let moon_i = self.0.get(*i).unwrap();
+                let moon_j = self.0.get(*j).unwrap();
+                for k in 0..3 {
+                    let pos_i = moon_i.borrow().pos()[k];
+                    let pos_j = moon_j.borrow().pos()[k];
+                    if pos_i < pos_j {
+                        moon_i.borrow_mut().vel_mut()[k] += 1;
+                        moon_j.borrow_mut().vel_mut()[k] -= 1;
+                    } else if pos_i > pos_j {
+                        moon_i.borrow_mut().vel_mut()[k] -= 1;
+                        moon_j.borrow_mut().vel_mut()[k] += 1;
                     }
                 }
             }
@@ -171,6 +215,14 @@ mod normal {
         pub(crate) fn vel_mut(&mut self) -> &mut Vec3<i64> {
             &mut self.vel
         }
+
+        pub(crate) fn state(&self) -> [(i64, i64); 3] {
+            [
+                (self.pos.x(), self.vel.x()),
+                (self.pos.y(), self.vel.y()),
+                (self.pos.z(), self.vel.z()),
+            ]
+        }
     }
 }
 
@@ -195,29 +247,30 @@ mod simd {
 
     impl Moons {
         pub(crate) fn step(&mut self) {
-            for moon_i in &self.0 {
-                for moon_j in &self.0 {
-                    if moon_i == moon_j {
-                        continue;
-                    }
+            for (i, j) in PAIRS.iter() {
+                let moon_i = self.0.get(*i).unwrap();
+                let moon_j = self.0.get(*j).unwrap();
 
-                    let pos_i = moon_i.borrow().pos;
-                    let pos_j = moon_j.borrow().pos;
+                let pos_i = moon_i.borrow().pos;
+                let pos_j = moon_j.borrow().pos;
 
-                    // Adding
-                    let mask_gt = unsafe { _mm256_cmpgt_epi64(pos_i, pos_j) };
-                    let operand_add = unsafe { _mm256_and_si256(mask_gt, *NEGATIVE_ONE) };
+                // Adding
+                let mask_gt = unsafe { _mm256_cmpgt_epi64(pos_i, pos_j) };
+                let operand_add = unsafe { _mm256_and_si256(mask_gt, *NEGATIVE_ONE) };
 
-                    // Subtracting
-                    let mask_lt = unsafe { _mm256_cmpgt_epi64(pos_j, pos_i) };
-                    let operand_sub = unsafe { _mm256_and_si256(mask_lt, *ONE) };
+                // Subtracting
+                let mask_lt = unsafe { _mm256_cmpgt_epi64(pos_j, pos_i) };
+                let operand_sub = unsafe { _mm256_and_si256(mask_lt, *ONE) };
 
-                    let operand = unsafe { _mm256_or_si256(operand_add, operand_sub) };
+                let operand = unsafe { _mm256_or_si256(operand_add, operand_sub) };
 
-                    let mut moon_ref = moon_i.borrow_mut();
-                    let vel_ref = moon_ref.vel_mut();
-                    *vel_ref = unsafe { _mm256_add_epi64(*vel_ref, operand) };
-                }
+                let mut moon_ref = moon_i.borrow_mut();
+                let vel_ref = moon_ref.vel_mut();
+                *vel_ref = unsafe { _mm256_add_epi64(*vel_ref, operand) };
+
+                let mut moon_ref = moon_j.borrow_mut();
+                let vel_ref = moon_ref.vel_mut();
+                *vel_ref = unsafe { _mm256_sub_epi64(*vel_ref, operand) };
             }
             for moon in self.iter_mut() {
                 let new_pos = {
@@ -262,9 +315,7 @@ mod simd {
         }
 
         pub(crate) fn pos(&self) -> Vec3<i64> {
-            let mut a: [i64; 4] = unsafe { mem::MaybeUninit::uninit().assume_init() };
-            unsafe { _mm256_storeu_si256(&mut a as *mut _ as *mut _, self.pos) };
-            Vec3::new(a[3], a[2], a[1])
+            self.pos.into()
         }
 
         pub(crate) fn pos_mut(&mut self) -> &mut __m256i {
@@ -272,13 +323,17 @@ mod simd {
         }
 
         pub(crate) fn vel(&self) -> Vec3<i64> {
-            let mut a: [i64; 4] = unsafe { mem::MaybeUninit::uninit().assume_init() };
-            unsafe { _mm256_storeu_si256(&mut a as *mut _ as *mut _, self.vel) };
-            Vec3::new(a[3], a[2], a[1])
+            self.vel.into()
         }
 
         pub(crate) fn vel_mut(&mut self) -> &mut __m256i {
             &mut self.vel
+        }
+
+        pub(crate) fn state(&self) -> [(i64, i64); 3] {
+            let pos: Vec3<i64> = self.pos.into();
+            let vel: Vec3<i64> = self.vel.into();
+            [(pos.x(), vel.x()), (pos.y(), vel.y()), (pos.z(), vel.z())]
         }
     }
 }
@@ -291,6 +346,6 @@ mod tests {
 
     #[test]
     fn test_12() {
-        utils::tests::test_full_problem(12, run, "7722", "TODO");
+        utils::tests::test_full_problem(12, run, "7722", "292653556339368");
     }
 }

@@ -4,6 +4,25 @@ use std::ops::{Deref, DerefMut};
 
 use crate::error::Error;
 
+pub(crate) fn gcf(a: u64, b: u64) -> Result<u64, Error> {
+    if a == 0 || b == 0 {
+        bail!("gcf function only works with positive inputs.");
+    }
+    let (mut smaller, mut larger) = if a > b { (b, a) } else { (a, b) };
+    loop {
+        let rem = larger % smaller;
+        if rem == 0 {
+            return Ok(smaller);
+        }
+        larger = smaller;
+        smaller = rem;
+    }
+}
+
+pub(crate) fn lcm(a: u64, b: u64) -> Result<u64, Error> {
+    Ok(a * b / gcf(a, b)?)
+}
+
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub(crate) struct F64(f64);
 
@@ -28,6 +47,8 @@ impl Deref for F64 {
 
 impl Eq for F64 {}
 
+// TODO: Verify that this is kosher.
+#[allow(clippy::derive_hash_xor_eq)]
 impl Hash for F64 {
     fn hash<H>(&self, state: &mut H)
     where
@@ -129,12 +150,49 @@ impl<T> From<[T; 3]> for Vec3<T> {
     }
 }
 
+#[cfg(all(
+    any(target_arch = "x86", target_arch = "x86_64"),
+    target_feature = "avx2"
+))]
+mod simd {
+    use std::mem;
+
+    use super::*;
+
+    #[cfg(target_arch = "x86")]
+    use std::arch::x86::*;
+    #[cfg(target_arch = "x86_64")]
+    use std::arch::x86_64::*;
+
+    impl From<__m256i> for Vec3<i64> {
+        fn from(v: __m256i) -> Self {
+            // safety: This is safe because the call to _mm256_storeu_si256 will write
+            // values to the uninitialized array so we won't be tying to access junk memory.
+            let mut a: [i64; 4] = unsafe { mem::MaybeUninit::uninit().assume_init() };
+            #[allow(clippy::cast_ptr_alignment)]
+            unsafe {
+                _mm256_storeu_si256(&mut a as *mut _ as *mut __m256i, v)
+            };
+            Vec3::new(a[3], a[2], a[1])
+        }
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use std::fs;
     use std::io;
 
+    use super::*;
     use crate::error::Error;
+
+    #[test]
+    pub(crate) fn test_gcf() {
+        assert_eq!(5, gcf(5, 5).unwrap());
+        assert_eq!(5, gcf(5, 10).unwrap());
+        assert_eq!(3, gcf(15, 21).unwrap());
+        assert!(gcf(1, 0).is_err());
+    }
 
     pub(crate) fn test_full_problem<F>(day: usize, run_func: F, expected1: &str, expected2: &str)
     where
