@@ -386,10 +386,10 @@ impl Memory for Vec<i64> {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct Rom(Vec<i64>);
+pub struct Rom(Vec<i64>);
 
 impl Rom {
-    pub(crate) fn from_reader<R>(mut reader: R) -> Result<Self, Error>
+    pub fn from_reader<R>(mut reader: R) -> Result<Self, Error>
     where
         R: io::BufRead,
     {

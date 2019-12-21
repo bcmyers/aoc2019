@@ -18,8 +18,10 @@ pub mod day13;
 pub mod day14;
 mod utils;
 
+pub use self::computer::Rom;
 pub use self::error::Error;
 pub use self::reader::Reader;
+pub use day13::Game;
 
 mod error {
     use std::fmt;
