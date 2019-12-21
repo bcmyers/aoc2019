@@ -5,7 +5,7 @@ use std::mem;
 use std::ops::{Deref, DerefMut};
 
 use crate::error::Error;
-use crate::utils::{lcm, Vec3};
+use crate::utils::{math::lcm, Vec3};
 
 #[cfg(not(all(
     any(target_arch = "x86", target_arch = "x86_64"),

@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::convert::TryFrom;
 use std::io;
 use std::time::Duration;
@@ -6,148 +7,85 @@ use crossbeam::channel::{self, Receiver, Sender};
 
 use crate::error::Error;
 
-#[derive(Clone, Debug)]
-pub(crate) struct Rom(Vec<i64>);
+pub type ComputerST = Computer<VecDeque<i64>>;
+pub type ComputerMT = Computer<Channel<i64>>;
 
-impl Rom {
-    pub(crate) fn from_reader<R>(mut reader: R) -> Result<Self, Error>
-    where
-        R: io::BufRead,
-    {
-        let mut buf = String::new();
-        reader.read_to_string(&mut buf)?;
-        let vec = buf
-            .trim()
-            .split(',')
-            .map(|s| s.trim().parse::<i64>().map_err(Error::from))
-            .collect::<Result<Vec<_>, Error>>()?;
-        Ok(Rom(vec))
-    }
-}
-
-impl AsRef<[i64]> for Rom {
-    fn as_ref(&self) -> &[i64] {
-        &self.0
-    }
-}
-
-impl std::ops::Deref for Rom {
-    type Target = [i64];
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl std::ops::DerefMut for Rom {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct Channel<T> {
-    sender: Sender<T>,
-    receiver: Receiver<T>,
-}
-
-impl<T> Default for Channel<T> {
-    fn default() -> Self {
-        let (sender, receiver) = channel::bounded(1024);
-        Self { sender, receiver }
-    }
-}
-
-impl<T> Channel<T> {
-    pub(crate) fn into_parts(self) -> (Sender<T>, Receiver<T>) {
-        (self.sender, self.receiver)
-    }
-
-    pub(crate) fn push_back(&mut self, val: T) {
-        self.sender.send(val).unwrap()
-    }
-
-    pub(crate) fn pop_front(&mut self) -> Result<T, Error> {
-        use crossbeam::channel::RecvTimeoutError;
-        match self.receiver.recv_timeout(Duration::from_secs(5)) {
-            Ok(val) => Ok(val),
-            Err(e) => match e {
-                RecvTimeoutError::Timeout => {
-                    bail!("Attempted to pop value off channel, but timed out.")
-                }
-                RecvTimeoutError::Disconnected => unreachable!(),
-            },
-        }
-    }
-
-    pub(crate) fn try_clear(&mut self) {
-        let mut iter = self.receiver.try_iter();
-        while iter.next().is_some() {}
-    }
-
-    pub(crate) fn try_iter<'a>(&'a mut self) -> impl Iterator<Item = T> + 'a {
-        self.receiver.try_iter()
-    }
-}
-
-pub(crate) struct Computer {
-    ram: Vec<i64>,
-    input: Channel<i64>,
-    output: Channel<i64>,
-    rb: i64, // Relative base
+pub struct Computer<Q> {
     pc: u64, // Program counter
+    rb: i64, // Relative base
+    ram: Vec<i64>,
+    state: StateInternal,
+    input: Q,
+    output: Q,
 }
 
-impl Default for Computer {
-    fn default() -> Self {
-        Self {
-            ram: Vec::new(),
-            input: Channel::default(),
-            output: Channel::default(),
-            rb: 0,
-            pc: 0,
-        }
-    }
-}
-
-impl Computer {
-    pub(crate) fn with_io(input: Channel<i64>, output: Channel<i64>) -> Self {
-        Self {
-            ram: Vec::new(),
-            input,
-            output,
-            rb: 0,
-            pc: 0,
-        }
-    }
-
-    pub(crate) fn execute<R>(
-        &mut self,
-        rom: R,
-        noun_and_verb: Option<(i64, i64)>,
-    ) -> Result<i64, Error>
+impl Computer<VecDeque<i64>> {
+    pub fn new<R>(rom: R) -> Computer<VecDeque<i64>>
     where
         R: AsRef<[i64]>,
     {
-        // reset state
-        self.pc = 0;
-        self.ram = rom.as_ref().to_vec();
-        self.rb = 0;
-
-        // set inputs
-        if let Some((noun, verb)) = noun_and_verb {
-            self.ram.write(1, noun)?;
-            self.ram.write(2, verb)?;
+        Self {
+            pc: 0,
+            rb: 0,
+            ram: rom.as_ref().to_vec(),
+            state: StateInternal::Executing,
+            input: VecDeque::default(),
+            output: VecDeque::default(),
         }
+    }
+}
 
-        // main loop
+impl Computer<Channel<i64>> {
+    pub fn new<R>(rom: R, input: Channel<i64>, output: Channel<i64>) -> Computer<Channel<i64>>
+    where
+        R: AsRef<[i64]>,
+    {
+        Self {
+            pc: 0,
+            rb: 0,
+            ram: rom.as_ref().to_vec(),
+            state: StateInternal::Executing,
+            input,
+            output,
+        }
+    }
+}
+
+impl<Q> Computer<Q>
+where
+    Q: Queue,
+{
+    pub fn run(&mut self) -> Result<(), Error> {
         loop {
-            let instruction = self.read_instruction()?;
-            if self.execute_instruction(instruction)?.is_none() {
-                break;
-            };
+            match self.step()? {
+                State::Done => return Ok(()),
+                State::HasOutput => (),
+                State::NeedsInput => bail!("Needs input."),
+            }
         }
+    }
 
-        Ok(self.ram[0])
+    pub fn step(&mut self) -> Result<State, Error> {
+        loop {
+            match self.state {
+                StateInternal::Done => return Ok(State::Done),
+                StateInternal::Executing => {
+                    let instruction = self.read_instruction()?;
+                    self.execute_instruction(instruction);
+                }
+                StateInternal::NeedsInput { w } => match self.input.dequeue() {
+                    Ok(val) => {
+                        self.ram.write(w, val);
+                        self.state = StateInternal::Executing;
+                    }
+                    Err(_) => return Ok(State::NeedsInput),
+                },
+                StateInternal::HasOutput => {
+                    self.state = StateInternal::Executing;
+                    return Ok(State::HasOutput);
+                }
+            }
+        }
     }
 
     fn read_instruction(&mut self) -> Result<Instruction, Error> {
@@ -196,20 +134,22 @@ impl Computer {
         Ok(instruction)
     }
 
-    fn execute_instruction(&mut self, instruction: Instruction) -> Result<Option<()>, Error> {
+    fn execute_instruction(&mut self, instruction: Instruction) {
         match instruction {
             Instruction::Add { a, b, w } => {
-                self.ram.write(w, a + b)?;
+                self.ram.write(w, a + b);
             }
             Instruction::Multiply { a, b, w } => {
-                self.ram.write(w, a * b)?;
+                self.ram.write(w, a * b);
             }
             Instruction::Input { w } => {
-                let val = self.input.pop_front()?;
-                self.ram.write(w, val)?;
+                self.state = StateInternal::NeedsInput { w };
+                return;
             }
             Instruction::Output { a } => {
-                self.output.push_back(a);
+                self.output.enqueue(a);
+                self.state = StateInternal::HasOutput;
+                return;
             }
             Instruction::JumpIfTrue { a, p } => {
                 if a != 0 {
@@ -223,40 +163,101 @@ impl Computer {
             }
             Instruction::LessThan { a, b, w } => {
                 if a < b {
-                    self.ram.write(w, 1)?;
+                    self.ram.write(w, 1);
                 } else {
-                    self.ram.write(w, 0)?;
+                    self.ram.write(w, 0);
                 }
             }
             Instruction::Equals { a, b, w } => {
                 if a == b {
-                    self.ram.write(w, 1)?;
+                    self.ram.write(w, 1);
                 } else {
-                    self.ram.write(w, 0)?;
+                    self.ram.write(w, 0);
                 }
             }
             Instruction::RelativeBase { a } => {
                 self.rb += a;
             }
             Instruction::Halt => {
-                return Ok(None);
+                self.state = StateInternal::Done;
+                return;
             }
         }
-        Ok(Some(()))
+        self.state = StateInternal::Executing;
     }
 
-    pub(crate) fn input_mut(&mut self) -> &mut Channel<i64> {
+    pub fn input_mut(&mut self) -> &mut Q {
         &mut self.input
     }
 
-    pub(crate) fn output_mut(&mut self) -> &mut Channel<i64> {
+    pub fn output_mut(&mut self) -> &mut Q {
         &mut self.output
     }
 
-    #[allow(unused)]
+    #[cfg(test)]
     pub(crate) fn ram(&self) -> &[i64] {
         &self.ram
     }
+
+    pub fn read(&mut self, ptr: u64) -> i64 {
+        self.ram.read(ptr)
+    }
+
+    pub fn write(&mut self, ptr: u64, val: i64) {
+        self.ram.write(ptr, val)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Channel<T> {
+    sender: Sender<T>,
+    receiver: Receiver<T>,
+}
+
+impl<T> Default for Channel<T> {
+    fn default() -> Self {
+        let (sender, receiver) = channel::bounded(1024);
+        Self { sender, receiver }
+    }
+}
+
+impl<T> Channel<T> {
+    pub fn into_parts(self) -> (Sender<T>, Receiver<T>) {
+        (self.sender, self.receiver)
+    }
+}
+
+impl Queue for Channel<i64> {
+    fn enqueue(&mut self, val: i64) {
+        self.sender.send(val).unwrap()
+    }
+
+    fn dequeue(&mut self) -> Result<i64, Error> {
+        use crossbeam::channel::RecvTimeoutError;
+        match self.receiver.recv_timeout(Duration::from_secs(5)) {
+            Ok(val) => Ok(val),
+            Err(e) => match e {
+                RecvTimeoutError::Timeout => {
+                    bail!("Attempted to pop value off channel, but timed out.")
+                }
+                RecvTimeoutError::Disconnected => unreachable!(),
+            },
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+enum Instruction {
+    Add { a: i64, b: i64, w: u64 },
+    Multiply { a: i64, b: i64, w: u64 },
+    Input { w: u64 },
+    Output { a: i64 },
+    JumpIfTrue { a: i64, p: u64 },
+    JumpIfFalse { a: i64, p: u64 },
+    LessThan { a: i64, b: i64, w: u64 },
+    Equals { a: i64, b: i64, w: u64 },
+    RelativeBase { a: i64 },
+    Halt,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -300,11 +301,11 @@ impl Iterator for Modes {
 }
 
 trait Memory {
-    fn read(&mut self, ptr: u64) -> Result<i64, Error>;
-    fn write(&mut self, ptr: u64, val: i64) -> Result<(), Error>;
+    fn read(&mut self, ptr: u64) -> i64;
+    fn write(&mut self, ptr: u64, val: i64);
 
     fn read_opcode(&mut self, pc: &mut u64) -> Result<(u64, Modes), Error> {
-        let n = self.read(*pc)?;
+        let n = self.read(*pc);
         *pc += 1;
         if n < 0 {
             bail!("Read negative opcode {}, which is not allowed.", n);
@@ -317,7 +318,7 @@ trait Memory {
     }
 
     fn read_signed(&mut self, modes: &mut Modes, rb: i64, pc: &mut u64) -> Result<i64, Error> {
-        let mut val = self.read(*pc)?;
+        let mut val = self.read(*pc);
         *pc += 1;
 
         let mode = modes.next().unwrap()?;
@@ -333,7 +334,7 @@ trait Memory {
                         val
                     );
                 }
-                let val2 = self.read(val as u64)?;
+                let val2 = self.read(val as u64);
                 Ok(val2)
             }
         }
@@ -347,7 +348,7 @@ trait Memory {
     }
 
     fn read_ptr(&mut self, modes: &mut Modes, rb: i64, pc: &mut u64) -> Result<u64, Error> {
-        let val = self.read(*pc)?;
+        let val = self.read(*pc);
         *pc += 1;
 
         let mode = modes.next().unwrap()?;
@@ -367,36 +368,87 @@ trait Memory {
 }
 
 impl Memory for Vec<i64> {
-    fn read(&mut self, ptr: u64) -> Result<i64, Error> {
+    fn read(&mut self, ptr: u64) -> i64 {
         if ptr as usize >= self.len() {
             self.resize(ptr as usize + 1, 0);
         }
         let value = *self.get(ptr as usize).unwrap();
-        Ok(value)
+        value
     }
 
-    fn write(&mut self, ptr: u64, val: i64) -> Result<(), Error> {
+    fn write(&mut self, ptr: u64, val: i64) {
         if ptr as usize >= self.len() {
             self.resize(ptr as usize + 1, 0);
         }
         let reference = self.get_mut(ptr as usize).unwrap();
         *reference = val;
-        Ok(())
     }
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
-enum Instruction {
-    Add { a: i64, b: i64, w: u64 },
-    Multiply { a: i64, b: i64, w: u64 },
-    Input { w: u64 },
-    Output { a: i64 },
-    JumpIfTrue { a: i64, p: u64 },
-    JumpIfFalse { a: i64, p: u64 },
-    LessThan { a: i64, b: i64, w: u64 },
-    Equals { a: i64, b: i64, w: u64 },
-    RelativeBase { a: i64 },
-    Halt,
+#[derive(Clone, Debug)]
+pub(crate) struct Rom(Vec<i64>);
+
+impl Rom {
+    pub(crate) fn from_reader<R>(mut reader: R) -> Result<Self, Error>
+    where
+        R: io::BufRead,
+    {
+        let mut buf = String::new();
+        reader.read_to_string(&mut buf)?;
+        let vec = buf
+            .trim()
+            .split(',')
+            .map(|s| s.trim().parse::<i64>().map_err(Error::from))
+            .collect::<Result<Vec<_>, Error>>()?;
+        Ok(Rom(vec))
+    }
+}
+
+impl AsRef<[i64]> for Rom {
+    fn as_ref(&self) -> &[i64] {
+        &self.0
+    }
+}
+
+impl std::ops::Deref for Rom {
+    type Target = [i64];
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for Rom {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+pub trait Queue {
+    fn dequeue(&mut self) -> Result<i64, Error>;
+    fn enqueue(&mut self, val: i64);
+}
+
+impl Queue for VecDeque<i64> {
+    fn dequeue(&mut self) -> Result<i64, Error> {
+        self.pop_front()
+            .ok_or_else(|| error!("Attempted to pop something off the queue, but queue was empty"))
+    }
+    fn enqueue(&mut self, val: i64) {
+        self.push_back(val);
+    }
+}
+
+pub enum State {
+    Done,
+    NeedsInput,
+    HasOutput,
+}
+
+enum StateInternal {
+    Done,
+    Executing,
+    NeedsInput { w: u64 },
+    HasOutput,
 }
 
 #[cfg(test)]
@@ -416,8 +468,10 @@ mod tests {
         for (input, noun, verb, expected_ram) in test_cases {
             let reader = io::BufReader::new(input.as_bytes());
             let rom = Rom::from_reader(reader).unwrap();
-            let mut computer = Computer::default();
-            let _ = computer.execute(&rom, Some((*noun, *verb))).unwrap();
+            let mut computer = ComputerST::new(&rom);
+            computer.write(1, *noun);
+            computer.write(2, *verb);
+            computer.run().unwrap();
             let expected_ram = expected_ram
                 .split(",")
                 .map(|s| s.trim().parse::<i64>().unwrap())

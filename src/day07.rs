@@ -4,42 +4,27 @@ use std::sync::Barrier;
 use crossbeam::{channel, thread};
 use itertools::Itertools;
 
-use crate::computer::{Channel, Computer, Rom};
+use crate::computer::{Channel, ComputerMT, Queue, Rom};
 use crate::error::Error;
-
-fn fact(mut n: usize) -> Result<usize, Error> {
-    let orig = n;
-    let mut answer = 1usize;
-    loop {
-        answer = match answer.checked_mul(n) {
-            Some(val) => val,
-            None => bail!("Factorial of {} overflows usize.", orig),
-        };
-        if (n - 1) == 0 {
-            break;
-        } else {
-            n -= 1;
-        }
-    }
-    Ok(answer)
-}
+use crate::utils::math;
 
 pub fn run<R>(reader: R) -> Result<(String, String), Error>
 where
     R: io::BufRead,
 {
     let ncomputers = 5;
+    let nchannels = math::fact(ncomputers)?;
 
     let barrier = Barrier::new(ncomputers);
     let rom = Rom::from_reader(reader)?;
 
     let (answer1, answer2) = thread::scope(|s| {
-        let (tx_output, rx_output) = channel::bounded(fact(ncomputers)?);
+        let (tx_output, rx_output) = channel::bounded(nchannels);
 
         let mut handles = Vec::new();
         let mut senders = Vec::new();
         for i in 0..ncomputers {
-            let (tx_input, rx_input) = channel::bounded(fact(ncomputers)?);
+            let (tx_input, rx_input) = channel::bounded(nchannels);
             senders.push(tx_input);
 
             let barrier = &barrier;
@@ -48,19 +33,19 @@ where
 
             let handle = s.spawn(move |_| {
                 while let Ok((part, phase_setting, input, output)) = rx_input.recv() {
-                    let mut computer = Computer::with_io(input, output);
+                    let mut computer = ComputerMT::new(rom, input, output);
 
-                    computer.input_mut().push_back(phase_setting);
+                    computer.input_mut().enqueue(phase_setting);
                     if i == 0 {
-                        computer.input_mut().push_back(0);
+                        computer.input_mut().enqueue(0);
                     }
 
                     barrier.wait();
-                    computer.execute(rom, None)?;
+                    computer.run()?;
                     barrier.wait();
 
                     if i == 4 {
-                        let answer = computer.output_mut().pop_front()?;
+                        let answer = computer.output_mut().dequeue()?;
                         tx_output.send((part, answer)).unwrap();
                     }
                 }

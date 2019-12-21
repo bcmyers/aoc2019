@@ -6,7 +6,7 @@ use std::io;
 use crossbeam::channel::{Receiver, Sender};
 use crossbeam::thread;
 
-use crate::computer::{Channel, Computer, Rom};
+use crate::computer::{Channel, ComputerMT, Rom};
 use crate::error::Error;
 use crate::utils::Vec2;
 
@@ -50,8 +50,8 @@ impl Robot {
             let (sender, _) = input.clone().into_parts();
             let (_, receiver) = output.clone().into_parts();
             let handle = s.spawn(move |_| {
-                let mut computer = Computer::with_io(input, output);
-                computer.execute(rom, None)?;
+                let mut computer = ComputerMT::new(rom, input, output);
+                computer.run()?;
                 Ok::<_, Error>(())
             });
 

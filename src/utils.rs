@@ -4,23 +4,57 @@ use std::ops::{Deref, DerefMut};
 
 use crate::error::Error;
 
-pub(crate) fn gcf(a: u64, b: u64) -> Result<u64, Error> {
-    if a == 0 || b == 0 {
-        bail!("gcf function only works with positive inputs.");
-    }
-    let (mut smaller, mut larger) = if a > b { (b, a) } else { (a, b) };
-    loop {
-        let rem = larger % smaller;
-        if rem == 0 {
-            return Ok(smaller);
-        }
-        larger = smaller;
-        smaller = rem;
-    }
-}
+pub(crate) mod math {
+    use super::*;
 
-pub(crate) fn lcm(a: u64, b: u64) -> Result<u64, Error> {
-    Ok(a * b / gcf(a, b)?)
+    pub(crate) fn fact(mut n: usize) -> Result<usize, Error> {
+        let orig = n;
+        let mut answer = 1usize;
+        loop {
+            answer = match answer.checked_mul(n) {
+                Some(val) => val,
+                None => bail!("Factorial of {} overflows usize.", orig),
+            };
+            if (n - 1) == 1 {
+                break;
+            } else {
+                n -= 1;
+            }
+        }
+        Ok(answer)
+    }
+
+    pub(crate) fn gcf(a: u64, b: u64) -> Result<u64, Error> {
+        if a == 0 || b == 0 {
+            bail!("gcf function only works with positive inputs.");
+        }
+        let (mut smaller, mut larger) = if a > b { (b, a) } else { (a, b) };
+        loop {
+            let rem = larger % smaller;
+            if rem == 0 {
+                return Ok(smaller);
+            }
+            larger = smaller;
+            smaller = rem;
+        }
+    }
+
+    pub(crate) fn lcm(a: u64, b: u64) -> Result<u64, Error> {
+        Ok(a * b / gcf(a, b)?)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn test_gcf() {
+            assert_eq!(5, gcf(5, 5).unwrap());
+            assert_eq!(5, gcf(5, 10).unwrap());
+            assert_eq!(3, gcf(15, 21).unwrap());
+            assert!(gcf(1, 0).is_err());
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -183,16 +217,7 @@ pub(crate) mod tests {
     use std::fs;
     use std::io;
 
-    use super::*;
     use crate::error::Error;
-
-    #[test]
-    pub(crate) fn test_gcf() {
-        assert_eq!(5, gcf(5, 5).unwrap());
-        assert_eq!(5, gcf(5, 10).unwrap());
-        assert_eq!(3, gcf(15, 21).unwrap());
-        assert!(gcf(1, 0).is_err());
-    }
 
     pub(crate) fn test_full_problem<F>(day: usize, run_func: F, expected1: &str, expected2: &str)
     where

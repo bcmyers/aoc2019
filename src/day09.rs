@@ -1,6 +1,6 @@
 use std::io;
 
-use crate::computer::{Computer, Rom};
+use crate::computer::{ComputerST, Queue, Rom};
 use crate::error::Error;
 
 pub fn run<R>(reader: R) -> Result<(String, String), Error>
@@ -8,18 +8,16 @@ where
     R: io::BufRead,
 {
     let rom = Rom::from_reader(reader)?;
-    let mut computer = Computer::default();
 
-    computer.input_mut().push_back(1);
-    computer.execute(&rom, None)?;
-    let answer1 = computer.output_mut().pop_front()?;
+    let mut computer = ComputerST::new(&rom);
+    computer.input_mut().enqueue(1);
+    computer.run()?;
+    let answer1 = computer.output_mut().dequeue()?;
 
-    computer.input_mut().try_clear();
-    computer.output_mut().try_clear();
-
-    computer.input_mut().push_back(2);
-    computer.execute(&rom, None)?;
-    let answer2 = computer.output_mut().pop_front()?;
+    let mut computer = ComputerST::new(&rom);
+    computer.input_mut().enqueue(2);
+    computer.run()?;
+    let answer2 = computer.output_mut().dequeue()?;
 
     Ok((answer1.to_string(), answer2.to_string()))
 }
@@ -49,9 +47,9 @@ mod tests {
         for (input, expected) in test_cases {
             let reader = io::BufReader::new(input.as_bytes());
             let rom = Rom::from_reader(reader).unwrap();
-            let mut computer = Computer::default();
-            computer.execute(&rom, None).unwrap();
-            let actual = computer.output_mut().try_iter().collect::<Vec<_>>();
+            let mut computer = ComputerST::new(&rom);
+            computer.run().unwrap();
+            let actual = computer.output_mut().iter().cloned().collect::<Vec<i64>>();
             assert_eq!(*expected, &actual[..]);
         }
 
