@@ -10,6 +10,7 @@ use crate::error::Error;
 pub type ComputerST = Computer<VecDeque<i64>>;
 pub type ComputerMT = Computer<Channel<i64>>;
 
+#[derive(Clone, Debug)]
 pub struct Computer<Q> {
     pc: u64, // Program counter
     rb: i64, // Relative base
@@ -438,12 +439,14 @@ impl Queue for VecDeque<i64> {
     }
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum State {
     Done,
     NeedsInput,
     HasOutput,
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 enum StateInternal {
     Done,
     Executing,
