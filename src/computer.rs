@@ -373,8 +373,7 @@ impl Memory for Vec<i64> {
         if ptr as usize >= self.len() {
             self.resize(ptr as usize + 1, 0);
         }
-        let value = *self.get(ptr as usize).unwrap();
-        value
+        *self.get(ptr as usize).unwrap()
     }
 
     fn write(&mut self, ptr: u64, val: i64) {

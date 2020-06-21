@@ -59,5 +59,5 @@ where
         answer2.push('\n');
     }
 
-    Ok((answer1.to_string(), answer2.to_string()))
+    Ok((answer1.to_string(), answer2))
 }

@@ -22,6 +22,8 @@
     "webpack-dev-server": "^3.7.1"
   },
   "babel": {
-    "presets": ["react-app"]
+    "presets": [
+      "react-app"
+    ]
   }
 }

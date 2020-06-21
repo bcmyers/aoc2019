@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::io;
 use std::mem;
@@ -164,12 +165,16 @@ mod normal {
                 for k in 0..3 {
                     let pos_i = moon_i.borrow().pos()[k];
                     let pos_j = moon_j.borrow().pos()[k];
-                    if pos_i < pos_j {
-                        moon_i.borrow_mut().vel_mut()[k] += 1;
-                        moon_j.borrow_mut().vel_mut()[k] -= 1;
-                    } else if pos_i > pos_j {
-                        moon_i.borrow_mut().vel_mut()[k] -= 1;
-                        moon_j.borrow_mut().vel_mut()[k] += 1;
+                    match pos_i.cmp(&pos_j) {
+                        Ordering::Less => {
+                            moon_i.borrow_mut().vel_mut()[k] += 1;
+                            moon_j.borrow_mut().vel_mut()[k] -= 1;
+                        }
+                        Ordering::Greater => {
+                            moon_i.borrow_mut().vel_mut()[k] -= 1;
+                            moon_j.borrow_mut().vel_mut()[k] += 1;
+                        }
+                        Ordering::Equal => {}
                     }
                 }
             }

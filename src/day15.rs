@@ -89,7 +89,7 @@ impl Droid {
         while let Some((parent, computer)) = self.queue.pop_front() {
             self.visited.insert(parent);
             self.computer = computer;
-            for (point, command) in surrounding_points(parent).into_iter() {
+            for (point, command) in surrounding_points(parent).iter() {
                 if !self.visited.contains(point) {
                     self.computer.input_mut().enqueue(*command as i64);
                     if self.computer.step()? != State::HasOutput {
@@ -101,11 +101,11 @@ impl Droid {
                         Response::Move | Response::Oxygen => {
                             self.graph
                                 .entry(parent)
-                                .or_insert_with(|| HashSet::new())
+                                .or_insert_with(HashSet::new)
                                 .insert(*point);
                             self.graph
                                 .entry(*point)
-                                .or_insert_with(|| HashSet::new())
+                                .or_insert_with(HashSet::new)
                                 .insert(parent);
 
                             let layer = self.layers.get(&parent).unwrap() + 1;
@@ -149,7 +149,7 @@ enum Command {
 }
 
 impl Command {
-    fn opposite(&self) -> Command {
+    fn opposite(self) -> Command {
         use self::Command::*;
         match self {
             North => South,

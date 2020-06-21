@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::io;
 
 use crate::computer::{ComputerST, Queue, Rom, State};
@@ -53,11 +54,8 @@ impl Game {
     }
 
     pub fn run(&mut self) -> Result<(), Error> {
-        loop {
-            match self.step()? {
-                Some(next_move) => self.computer.input_mut().enqueue(next_move),
-                None => break,
-            }
+        while let Some(next_move) = self.step()? {
+            self.computer.input_mut().enqueue(next_move);
         }
         Ok(())
     }
@@ -71,12 +69,10 @@ impl Game {
                         self.nblocks = bytecount::count(&self.display[..], 2);
                         self.first = false;
                     }
-                    if self.paddle < self.ball {
-                        return Ok(Some(1));
-                    } else if self.paddle > self.ball {
-                        return Ok(Some(-1));
-                    } else {
-                        return Ok(Some(0));
+                    match self.paddle.cmp(&self.ball) {
+                        Ordering::Less => return Ok(Some(1)),
+                        Ordering::Greater => return Ok(Some(-1)),
+                        Ordering::Equal => return Ok(Some(0)),
                     }
                 }
                 State::HasOutput => {

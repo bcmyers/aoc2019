@@ -9,7 +9,7 @@ publish = false
 atoi = "0.3"
 bytecount = "0.6"
 crossbeam = "0.7"
-itertools = "0.8"
+itertools = "0.9"
 lazy_static = "1.4"
 structopt = "0.3"
 
